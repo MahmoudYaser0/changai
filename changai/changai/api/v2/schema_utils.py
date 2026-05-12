@@ -9,6 +9,7 @@ import json
 from typing import Any, Dict, List, Tuple, Union, Optional, Set
 import yaml
 from frappe.utils import getdate
+from frappe import _
 from pathlib import Path
 
 def _safe_join(base: Path, rel: str) -> Path:
@@ -145,14 +146,14 @@ MASTER_DOCTYPES = [
 ]
 
 @frappe.whitelist(allow_guest=False)
-def check_file_updates(file_name=None):
+def check_file_updates(file_name :str):
     settings = frappe.get_single("ChangAI Settings")
     if file_name == "master_data.yaml":
         last_sync = settings.last_masterdata_sync
     elif file_name == "schema.yaml":
         last_sync = settings.last_schema_sync
     else:
-        frappe.throw("Invalid file_name")
+        frappe.throw(_("Invalid file_name"))
 
     if not last_sync:
         return {
@@ -261,7 +262,6 @@ def convert_yaml_schema_to_sqlglot_meta() -> dict:
             "message": str(e)
         }
     
-from frappe import _
 @frappe.whitelist(allow_guest=False)
 def test():
         res=check_file_updates("master_data.yaml")

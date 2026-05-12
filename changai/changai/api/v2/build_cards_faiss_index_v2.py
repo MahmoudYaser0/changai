@@ -10,6 +10,7 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from changai.changai.api.v2.text2sql_pipeline_v2 import get_embedding_engine
 import os
+import pickle
 
 def get_app_fvs_base():
     return os.path.join(
@@ -193,7 +194,7 @@ GENERIC_FIELDS = {
     'creation', 'modified', 'owner', 'parenttype','old_parent',
     'parentfield', 'parent', 'idx', 'name', 'docstatus'
 }
-@frappe.whitelist(allow_guest=True)
+
 def clean_schema(schema: Dict[str, Any], output_path: str):
 
     tables = schema.get("tables", [])
@@ -205,7 +206,7 @@ def clean_schema(schema: Dict[str, Any], output_path: str):
                 if field.get("name") not in GENERIC_FIELDS
             ]
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w") as f: # nosemgrep: output_path is derived from frappe.get_app_path, not user input
         yaml.dump(schema, f, allow_unicode=True, sort_keys=False)
 
     print(f"Cleaned schema written to {output_path}")
@@ -372,9 +373,7 @@ def build_table_fvs_job():
         frappe.log_error(frappe.get_traceback(), "Build Table FVS Failed")
         raise
 
-import os
-import pickle
-import numpy as np
+
 def save_field_matrix(schema_docs, base_dir):
     emb = get_embedding_engine()
 
@@ -389,23 +388,22 @@ def save_field_matrix(schema_docs, base_dir):
     )
 
     table_to_idx = {}
-
     for i, d in enumerate(schema_docs):
         meta = getattr(d, "metadata", {}) or {}
         table = meta.get("table")
         field = meta.get("field")
-
         if table and field:
             table_to_idx.setdefault(table, []).append(i)
 
-    os.makedirs(base_dir, exist_ok=True)
+    safe_dir = _assert_dir_inside_base(base_dir, get_app_fvs_base())  # validates path
+    safe_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(os.path.join(base_dir, "field_embs.npy"), embs)
+    np.save(safe_dir / "field_embs.npy", embs)
 
-    with open(os.path.join(base_dir, "field_docs.pkl"), "wb") as f:
+    with open(safe_dir / "field_docs.pkl", "wb") as f:  # nosemgrep: path validated by _assert_dir_inside_base
         pickle.dump(schema_docs, f)
 
-    with open(os.path.join(base_dir, "table_to_idx.pkl"), "wb") as f:
+    with open(safe_dir / "table_to_idx.pkl", "wb") as f:  # nosemgrep: path validated by _assert_dir_inside_base
         pickle.dump(table_to_idx, f)
 
 

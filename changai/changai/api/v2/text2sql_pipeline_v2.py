@@ -352,23 +352,21 @@ def load_field_matrix():
     if _FIELD_DOCS_CACHE is not None:
         return _FIELD_DOCS_CACHE, _FIELD_EMBS_CACHE, _TABLE_TO_IDX_CACHE
 
-    app_root = frappe.get_app_path("changai")
-    schema_path = os.path.join(
-        app_root,
-        "changai", "api", "v2", "fvs_stores", "erpnext", "emb_dir"
-    )
+    app_root = Path(frappe.get_app_path("changai")).resolve()
+    schema_rel = "changai/api/v2/fvs_stores/erpnext/emb_dir"
+    schema_path = _safe_join(app_root, schema_rel)
 
-    embs_path = os.path.join(schema_path, "field_embs.npy")
-    docs_path = os.path.join(schema_path, "field_docs.pkl")
-    table_idx_path = os.path.join(schema_path, "table_to_idx.pkl")
+    embs_path = schema_path / "field_embs.npy"
+    docs_path = schema_path / "field_docs.pkl"
+    table_idx_path = schema_path / "table_to_idx.pkl"
 
-    if not os.path.exists(embs_path):
+    if not embs_path.exists():
         frappe.throw(f"Missing field_embs.npy. Rebuild schema FVS first: {embs_path}")
 
-    with open(docs_path, "rb") as f:
+    with open(docs_path, "rb") as f:  # nosemgrep: path validated by _safe_join against app_root
         docs = pickle.load(f)
 
-    with open(table_idx_path, "rb") as f:
+    with open(table_idx_path, "rb") as f:  # nosemgrep: path validated by _safe_join against app_root
         table_to_idx = pickle.load(f)
 
     embs = np.load(embs_path, mmap_mode="r")
@@ -613,7 +611,7 @@ def whoami() -> Dict[str, Any]:
             mimetype=APPLICATION_JSON,
         )
     except ValueError as ve:
-        frappe.throw(_("{0}\n Check Quick Start Guide Here 👇:\n {1}").format(ve,CHANGAI_GUIDE_LINK))
+        frappe.throw(_("{0}\n Check Quick Start Guide Here 👇:\n {1}").format(str(ve),CHANGAI_GUIDE_LINK))
                      
 
 
@@ -1167,28 +1165,14 @@ def build_hnsw_index(embeddings):
     return index
 
 
-@frappe.whitelist(allow_guest=True)
 def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, Any]:
     try:
-        # publish_pipeline_update(
-        #     request_id,
-        #     "table_retrieval",
-        #     "Searching relevant tables"
-        # )
         top_tables = call_fvs_table_search(user_question)
         publish_pipeline_update(
             request_id,
             "table_retrieval_done",
-            "Tables retrieved"
+            _("Tables retrieved")
         )
-        # table_prompt = FILTER_TABLES.replace("{user_question}", user_question)
-        # table_prompt = table_prompt.replace("{table_list}", json.dumps(top_tables, ensure_ascii=False))
-        # selected_raw = call_gemini(table_prompt)
-        # selected_tables = _parse_json_list(selected_raw)
-        # top_set = set(top_tables)
-        # selected_tables = [t for t in selected_tables if t in top_set]
-        # if not selected_tables:
-        #     return {"selected_fields": {}, "selected_tables": [], "top_tables": top_tables}
         fields_candidates= call_fvs_field_search_global_k(
             user_question,
             selected_tables=top_tables,
@@ -1199,13 +1183,6 @@ def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, A
             "field_retrieval_done",
             "Fields selected"
         )
-        # field_prompt = filter_fields.replace("{user_question}", user_question)
-        # field_prompt = field_prompt.replace("{fields_tables}", json.dumps(fields_candidates, ensure_ascii=False))
-        # selected_raw = call_gemini(field_prompt)
-        # try:
-        #     selected_map = json.loads(selected_raw) if isinstance(selected_raw, str) else {}
-        # except Exception:
-        #     selected_map = {}
         return {
             "selected_fields": fields_candidates,
             "selected_tables": top_tables,
@@ -1282,8 +1259,7 @@ def call_fvs_field_search_global_k(
         if meta.get("options"):
             opts = meta["options"]
             if isinstance(opts, list):
-                name += " {" + ", ".join(map(str, opts[:5])) + "}"
-
+                name += " {" + ", ".join(str(o) for o in opts[:5]) + "}"
         grouped.setdefault(table, []).append(name)
 
     # 🔥 final compact string
@@ -2395,7 +2371,7 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> 
     publish_pipeline_update(
         request_id,
         "sql_validated",
-        "SQL valididation Completed"
+        _("SQL validation Completed")
     )
     orm = clean_sql(final.get("orm")) or ""
     formatted_q = _safe_strip(final.get("formatted_q") or "")

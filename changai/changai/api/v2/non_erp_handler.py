@@ -36,7 +36,7 @@ class IntelligentStaticResponder:
         self._arabic_detect_re = re.compile(r"[\u0600-\u06FF]")
 
         t1 = time.time()
-        with open(alias_path, "r", encoding="utf-8") as f:
+        with open(alias_path, "r", encoding="utf-8") as f:  # nosemgrep: path is from frappe.get_app_path, validated in __init__
             alias_map = json.load(f)
         print(f"[non_erp] alias json load: {time.time() - t1:.4f}s")
 
@@ -124,7 +124,7 @@ class IntelligentStaticResponder:
         self.responses_by_key.clear()
         self.keys.clear()
 
-        with open(self.json_file, "r", encoding="utf-8") as f:
+        with open(self.json_file, "r", encoding="utf-8") as f:  # nosemgrep: path is from frappe.get_app_path, validated in __init__
             rows = json.load(f)
 
         processed_rows = []
@@ -175,7 +175,7 @@ class IntelligentStaticResponder:
         if rows is None:
             return
 
-        with open(cache_path, "wb") as f:
+        with open(cache_path, "wb") as f:   # nosemgrep: cache_path derived from self.json_file, validated in __init__
             pickle.dump(rows, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def _load_from_pickle(self, cache_path: str) -> None:
@@ -183,7 +183,7 @@ class IntelligentStaticResponder:
         self.responses_by_key.clear()
         self.keys.clear()
 
-        with open(cache_path, "rb") as f:
+        with open(cache_path, "rb") as f: # nosemgrep: cache_path derived from self.json_file, validated in __init__
             rows = pickle.load(f)
 
         for row in rows:

@@ -286,9 +286,6 @@ def sync_master_data_smart() -> Dict[str, Any]:
     settings.save(ignore_permissions=True)
     payload_out = {"_meta": meta, "data": final_data}
     file_doc = write_filedoctype(file_name, payload_out, folder=RAG_FOLDER)
-
-    frappe.db.commit()
-
     return {
         "ok": True,
         "message": _("Master data sync complete."),
@@ -315,69 +312,6 @@ def _clean_schema_fields(by_table: Dict[str, Dict[str, Any]]) -> None:
             if field.get("fieldtype") != "Link":
                 field.pop("join_hint", None)
 
-
-@frappe.whitelist(allow_guest=True)
-def test():
-    payload = _read_filedoctype("schema.yaml", "Home/RAG Sources")
-    tables = [
-        table.get("table")
-        for table in payload.get("tables", [])
-        if isinstance(table, dict) and table.get("table")
-    ]
-
-    write_filedoctype(
-        "tables.json",
-        tables,
-        folder="Home/RAG Sources"
-    )
-
-    print("Tables count:", len(tables))
-    return len(tables)
-    # payload = _read_filedoctype("schema.yaml", "Home/RAG Sources")
-
-    # valid_modules = set(erpnext_modules)
-
-    # clean_tables = []
-
-    # for block in payload.get("tables", []):
-    #     table = block.get("table")
-    #     if not table:
-    #         continue
-
-    #     dt = _strip_tab(table)
-
-    #     doc = frappe.get_value("DocType", dt, ["module", "custom"], as_dict=True)
-
-    #     if not doc:
-    #         continue
-
-    #     # keep only standard ERPNext doctypes (not custom)
-    #     if doc.custom:
-    #         continue
-
-    #     # keep only ERPNext modules
-    #     if doc.get("module") not in erpnext_modules:
-    #         continue
-
-    #     clean_tables.append(block)
-
-    # payload["tables"] = clean_tables
-
-    # write_filedoctype(
-    #     "schema.yaml",
-    #     payload,
-    #     folder="Home/RAG Sources"
-    # )
-
-    # print("Cleaned tables:", len(clean_tables))
-    # tables = [t["table"] for t in payload["tables"]]
-
-    # write_filedoctype(
-    #     "tables.json",
-    #     tables,
-    #     folder="Home/RAG Sources"
-    # )
-    # return len(clean_tables)
 
 @frappe.whitelist(allow_guest=False)
 def get_doctypes_changed_since(last_sync: Optional[str]) -> List[str]:
