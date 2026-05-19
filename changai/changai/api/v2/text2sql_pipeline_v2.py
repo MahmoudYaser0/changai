@@ -8,6 +8,7 @@ import json
 from changai.changai.api.v2.non_erp_handler import handle_non_erp_query
 import yaml
 import re
+from frappe.utils.jinja import render_template
 import os
 import pickle
 import numpy as np
@@ -179,6 +180,56 @@ def get_symspell():
 
     return sym_spell
 
+@lru_cache(maxsize=512)
+def is_child_table(table: str) -> bool:
+    doctype = table.replace("tab", "", 1) if table.startswith("tab") else table
+
+    try:
+        meta = frappe.get_meta(doctype, cached=True)
+        return bool(getattr(meta, "istable", 0))
+    except Exception:
+        return False
+
+CHILD_GENERIC_FIELDS = ["parent", "parenttype", "parentfield", "idx"]
+MAIN_GENERIC_FIELDS = ["name", "docstatus"]
+def enrich_fields_for_sql_context(table: str, fields: list[str]) -> list[str]:
+    out = list(fields)
+
+    if is_child_table(table):
+        for f in reversed(CHILD_GENERIC_FIELDS):
+            if f not in out:
+                out.insert(0, f)
+    else:
+        for f in reversed(MAIN_GENERIC_FIELDS):
+            if f not in out:
+                out.insert(0, f)
+
+    return out
+@frappe.whitelist(allow_guest=False)
+def format_schema_context(grouped: dict[str, list[str]]) -> str:
+    parts = []
+
+    for table, raw_fields in grouped.items():
+        child = is_child_table(table)
+        fields = enrich_fields_for_sql_context(table, raw_fields)
+
+        parts.append(f"TABLE: {table}")
+        parts.append(f"TYPE: {'Child Table' if child else 'Main Table'}")
+
+        if child:
+            parts.append("JOIN RULES:")
+            parts.append("- parent = parent document name")
+            parts.append("- parenttype = parent DocType")
+            parts.append("- parentfield = child table fieldname")
+
+        parts.append("FIELDS:")
+        for field in fields:
+            parts.append(f"- {field}")
+
+        parts.append("")
+
+    return "\n".join(parts)
+
 
 def publish_pipeline_update(request_id, stage, message, data=None, done=False, error=False):
     if not request_id:
@@ -237,7 +288,7 @@ def read_asset(file_name: str, base: str = "assets") -> Any:
     if root is None:
         frappe.throw(_("Invalid base: {0}\n"
                        "Check Quick Start Guide Here 👇:\n {1}").format(base, CHANGAI_GUIDE_LINK))
-
+    # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
     path = _safe_join(root, file_name)
 
     if not path.is_file():
@@ -354,6 +405,7 @@ def load_field_matrix():
 
     app_root = Path(frappe.get_app_path("changai")).resolve()
     schema_rel = "changai/api/v2/fvs_stores/erpnext/emb_dir"
+    # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
     schema_path = _safe_join(app_root, schema_rel)
 
     embs_path = schema_path / "field_embs.npy"
@@ -368,7 +420,7 @@ def load_field_matrix():
         docs = pickle.load(f)
 
     # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
-    with open(table_idx_path, "rb") as f:  # nosemgrep: path validated by _safe_join against app_root
+    with open(table_idx_path, "rb") as f:
         table_to_idx = pickle.load(f)
 
     embs = np.load(embs_path, mmap_mode="r")
@@ -379,7 +431,6 @@ def load_field_matrix():
 
     return docs, embs, table_to_idx
 
-@frappe.whitelist(allow_guest=True)
 def _get_cached_embedding_test(q: str) -> tuple:
     t0=time.time()
     # publish_pipeline_update(
@@ -1005,7 +1056,7 @@ def _word_is_erp(word: str) -> bool:
             return True
     if len(word) >= 4:
         match = process.extractOne(
-            word, _KEYWORDS_LIST, scorer=fuzz.ratio, score_cutoff=85
+            word, _KEYWORDS_LIST, scorer=fuzz.ratio, score_cutoff=70
         )
         if match:
             return True
@@ -1069,8 +1120,7 @@ def tokenize_mixed(text):
     return re.findall(r'[\u0600-\u06FF]+|[a-zA-Z0-9]+', text.lower())
 
 
-@frappe.whitelist(allow_guest=True)
-def is_erp_query(q: str):
+def is_erp_query(q: str) -> bool:
     words = tokenize_mixed(q)
 
     for word in words:
@@ -1085,7 +1135,7 @@ def is_erp_query(q: str):
             word,
             BUSINESS_KEYWORDS,
             scorer=fuzz.ratio,
-            score_cutoff=80
+            score_cutoff=70
         )
 
         if match:
@@ -1372,7 +1422,7 @@ def build_hnsw_index(embeddings):
     
     return index
 
-
+@frappe.whitelist(allow_guest=True)
 def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, Any]:
     try:
         top_tables = call_fvs_table_search(user_question, request_id)
@@ -1402,7 +1452,6 @@ def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, A
         raise
     except Exception as e:
         return {"selected_fields": {}, "selected_tables": [], "top_tables": [], "error": str(e)}
-
 
 def call_fvs_field_search_global_k(
     user_question: str,
@@ -1447,7 +1496,7 @@ def call_fvs_field_search_global_k(
 
         meta = getattr(d, "metadata", {}) or {}
         table = meta.get("table")
-        field = meta.get("field")
+        field = meta.get("field") or meta.get("name") 
 
         if not table or not field:
             continue
@@ -1471,13 +1520,10 @@ def call_fvs_field_search_global_k(
             if isinstance(opts, list):
                 name += " {" + ", ".join(str(o) for o in opts[:5]) + "}"
         grouped.setdefault(table, []).append(name)
-
+    
+    res = format_schema_context(grouped)
     # 🔥 final compact string
-    parts = []
-    for table, fields in grouped.items():
-        parts.append(f"{table}: " + ", ".join(fields))
-
-    return "\n".join(parts)
+    return res
 
 
 # Node 1: Retrive with Fiass Vector Store.
@@ -2000,10 +2046,15 @@ def execute_query(sql: str, doctypes: List[str]) -> Any:
         if not str(sql).lower().strip().startswith("select"):
             frappe.throw(_("Only SELECT queries are allowed."
                            "Check Quick Start Guide Here 👇:\n {0}").format(CHANGAI_GUIDE_LINK))
+        sql = sql.rstrip().rstrip(';')
         combined = _build_match_conditions(doctypes)
         if combined:
             sql = _append_conditions(sql, combined)
         return frappe.db.sql(sql, as_dict=True)
+    except PermissionError:
+        return {
+            "error": _("You do not have permission to access this data.\n").format(CHANGAI_GUIDE_LINK)
+        }
     except Exception as e:
         return {"error": f"SQL Execution Failed: {e}\n Check Quick Start Guide Here 👇:\n {CHANGAI_GUIDE_LINK}"}
 
@@ -2078,14 +2129,10 @@ def save_logs(
 
 @frappe.whitelist(allow_guest=False)
 def format_data_conversationally(user_data: Any) -> str:
-    env = jinja2.Environment(
-        autoescape=True,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        extensions=["jinja2.ext.do"],
+    return render_template(
+        CONVERSATION_TEMPLATE,
+        {"data": user_data}
     )
-    template = env.from_string(CONVERSATION_TEMPLATE)
-    return template.render(data=user_data)
 
 
 @frappe.whitelist(allow_guest=False)
@@ -2113,18 +2160,19 @@ TONE & STYLE:
 FORMATTING:
 - Start with ONE relevant emoji matching the topic (📦💰🧾👥📊📅🔍💤📉)
 - For 3+ items, use a bullet list: • Item — value
-- If list exceeds shown items, state exactly how many remain: e.g. + 3 أخرى
+- If list exceeds shown items, state exactly how many remain.
 - Keep answers brief (1–6 lines). Lead with the direct answer, then light context.
 
 CLOSING:
 - End with ONE short, relevant follow-up question to keep the conversation going.
-- Make it feel natural, not robotic. e.g. "هل تريد تفاصيل أكثر عن أحد هؤلاء؟"
+- Make it feel natural, not robotic.
 Never list names or items in a comma-separated line. Ever.
 OUTPUT:
 - Markdown ALLOWED: **bold**, • bullets, emojis
 - No JSON. No code blocks. No labels. No explanations.
 - Output ONLY the final user-facing answer. Nothing else.
-- if the user question is in english reply in arbic only very improtant.
+- if the user question is in english reply in english only very important.
+if the user question is in arabic respond in arabic only. and if the question is in english respond answer also english
 """
     user_prompt=f"""
             QUESTION:
@@ -2466,7 +2514,7 @@ def debug_entity_retriever(q: str):
     }
 
 
-def _invoke_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI:bool):
+def _invoke_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI: bool = False):
     initial_state: SQLState = {
         "question": user_question or "",
         "session_id": chat_id,
@@ -2591,7 +2639,7 @@ def _handle_sql_result(memory_status: Dict,sql_prompt:str,final: SQLState, sql: 
 
 
 @frappe.whitelist(allow_guest=False)
-def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI=0) -> Dict:
+def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI: bool = False) -> Dict:
     memory_status = check_memory_status()
     final, err_response = _invoke_pipeline(user_question, chat_id, request_id,sendNonErptoAI)
     if err_response:
@@ -2651,7 +2699,6 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str,send
 #     except Exception as e:
 #         print(f"Error during model call: {e}")
 _WARMUP_COUNT=0
-@frappe.whitelist(allow_guest=True)
 def load_on_startup():
     global _WARMUP_COUNT,_EMBEDDER_INSTANCE, _VS_TABLE, _FULL_FIELDS_VS, _VS_MASTER, _FIELD_DOCS_CACHE, sym_spell, _GEMINI_CLIENT
     _WARMUP_COUNT+=1
@@ -2721,7 +2768,6 @@ def test():
     return result
 
 
-@frappe.whitelist(allow_guest=True)
 def get_embedding_engine_test():
     global _EMBEDDER_INSTANCE
     import time, os
@@ -2757,7 +2803,6 @@ def get_embedding_engine_test():
     }
 
 
-@frappe.whitelist(allow_guest=True)
 def test_guardrail_router(question: str):
     raw_q = (question or "").lower().strip()
     q_corrected = correct_spelling(raw_q)

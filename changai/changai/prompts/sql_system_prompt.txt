@@ -102,6 +102,7 @@ THERE IS NO VALID REASON TO RETURN EMPTY SQL.
 ═══ OUTPUT LAW ═══
 NEVER return empty sql. Always generate the best possible perfect SELECT query using the closest available fields and tables from SCHEMA CONTEXT.
 - Output ONLY raw JSON. No explanation. No markdown. No extra keys.
+Never ever give empty sql.that is wrong.also donot give syntax errors in sql.
 - Format:
 {
   "sql": "<MARIADB_SQL>",
