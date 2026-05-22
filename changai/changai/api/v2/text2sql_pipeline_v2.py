@@ -1726,14 +1726,13 @@ def append_entity_field_to_schema(top_fields: str, table_name: str, field_name: 
 
     return re.sub(pattern, replace_block, top_fields, count=1, flags=re.DOTALL)
 
-@frappe.whitelist(allow_guest=True)
-def local_entity_embedder(q: str) -> List[Dict[str, Any]]:
+
+def local_entity_embedder(q: str,state: SQLState = None) -> List[Dict[str, Any]]:
     hits = get_master_vs().similarity_search(q, k=20)
     out, seen = [], set()
-    entity_types_list=[]
     for h in hits:
         entity_type = h.metadata.get("entity_type")   # example: tabCustomer
-        entity_id = h.metadata.get("entity_id") if h.metadata.get("entity_id") else ""     # example: customer_name
+        entity_id = h.metadata.get("entity_id")    # example: customer_name
         entity_label = h.metadata.get("entity_label")
         # if entity_type in state["selected_tables"]:
         #     state["selected_fields"] = append_entity_field_to_schema(
@@ -1742,14 +1741,14 @@ def local_entity_embedder(q: str) -> List[Dict[str, Any]]:
         #         field_name=entity_id
         #     )
 
-        key = (entity_type, entity_id)
-        if entity_type and key not in seen:
+        key = (entity_type, entity_label)
+        if key not in seen:
             seen.add(key)
             out.append({"entity_type": entity_type, "entity_id": entity_id, "entity_label": entity_label})
     return out
 
-@frappe.whitelist(allow_guest=True)
-def call_entity_retriever(qstn: str) -> Dict[str, Any]:
+
+def call_entity_retriever(qstn: str,state: SQLState) -> Dict[str, Any]:
     config = ChangAIConfig.get()
     if config["REMOTE"] and config["llm"] == "QWEN3":
         response = remote_entity_embedder(qstn)
@@ -1766,7 +1765,7 @@ def call_entity_retriever(qstn: str) -> Dict[str, Any]:
 
         return {"raw": body, "cards": cards}
     else:
-        results = local_entity_embedder(qstn)
+        results = local_entity_embedder(qstn,state)
         cards = [
             r.get("entity_label")
             for r in results
@@ -2835,17 +2834,17 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str, sen
         frappe.log_error(e, "Error occurred while fetching final values")
     err = final.get("error")
 
-    # # guard empty sql
-    # # if not sql:
-    # #     return _error_response(memory_status, user_question, formatted_q, context,
-    # #                            selected_tables, fields, sql, 
-    # #                            {"ok": False, "error": "SQL is empty"},
-    # #                            entity_debug, 0, "SQL not valid or missing", err)
-    # # retried_sql1, retried_orm1, retry1_val_res = retry_sql(retried_sql, retry_val_res.get("error"), formatted_q, sql_prompt)
-    # # if retry1_val_res.get("ok"):
-    # #     return _handle_sql_result(memory_status, sql_prompt, final, retried_sql1, retried_orm1,
-    # #                               formatted_q, fields, selected_tables, retry1_val_res,
-    # #                               entity_debug, user_question, chat_id)
+    # # # guard empty sql
+    # # # if not sql:
+    # # #     return _error_response(memory_status, user_question, formatted_q, context,
+    # # #                            selected_tables, fields, sql, 
+    # # #                            {"ok": False, "error": "SQL is empty"},
+    # # #                            entity_debug, 0, "SQL not valid or missing", err)
+    # retried_sql1, retried_orm1, retry1_val_res = retry_sql(retried_sql, retry_val_res.get("error"), formatted_q, sql_prompt)
+    # if retry1_val_res.get("ok"):
+    #     return _handle_sql_result(memory_status, sql_prompt, final, retried_sql1, retried_orm1,
+    #                               formatted_q, fields, selected_tables, retry1_val_res,
+    #                               entity_debug, user_question, chat_id)
     res = validate_sql_schema(sql)
     publish_pipeline_update(request_id, "sql_validated", _("SQL validation Completed"))
 
