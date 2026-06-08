@@ -229,12 +229,14 @@ def is_doctype_schema_changed(doc,last_sync):
     custom_field_modified = frappe.db.get_value(
         "Custom Field",
         {"dt": doc},
-        "max(modified)"
+        [{"MAX": "modified"}],
+        order_by=None,
     )
     property_setter_modified = frappe.db.get_value(
         "Property Setter",
         {"doc_type": doc},
-        "max(modified)"
+        [{"MAX": "modified"}],
+        order_by=None,
     )
     latest = max(
         [
@@ -256,7 +258,8 @@ def is_master_data_changed(last_sync):
         latest_modified = frappe.db.get_value(
             doc,
             {},
-            "max(modified)"
+            [{"MAX": "modified"}],
+            order_by=None,
         )
         return bool(getdate(latest_modified) > getdate(last_sync)) if latest_modified and last_sync else False
     return False

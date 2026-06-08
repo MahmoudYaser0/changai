@@ -740,6 +740,8 @@ def call_model(prompt: str, task: str = "llm",sys_prompt: str = "") -> Any:
     else:
         if config["llm"] == "Gemini":
             return call_gemini(prompt,sys_prompt)
+        if config["llm"] == "LM Studio":
+            return call_lm_studio(prompt, sys_prompt)
 
 
 def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any], timeout: int = 120):
@@ -768,6 +770,90 @@ def local_llm_request(prompt: str) -> str:
         return f"Error: local LLM call failed ({resp.get('status_code')}): {resp.get('body')}"
     text = (resp.get("body") or {}).get("response")
     return (text or "").strip() or "Error: Empty response from local LLM."
+
+
+def _extract_lm_studio_text(body: Dict[str, Any]) -> str:
+    output = body.get("output") or []
+    parts = []
+    for item in output:
+        if isinstance(item, dict) and item.get("type") == "message":
+            content = (item.get("content") or "").strip()
+            if content:
+                parts.append(content)
+    if parts:
+        return "\n".join(parts)
+    if isinstance(body.get("choices"), list) and body["choices"]:
+        message = body["choices"][0].get("message") or {}
+        return (message.get("content") or "").strip()
+    return ""
+
+
+def call_lm_studio(prompt: str, sys_prompt: str = "") -> str:
+    settings = frappe.get_single(CHANGAI_SETTINGS)
+    base_url = (settings.lm_studio_url or "").strip().rstrip("/")
+    model = (settings.lm_studio_model or "").strip()
+    api_token = settings.get_password("lm_studio_api_token", raise_exception=False) or ""
+
+    if not base_url:
+        frappe.throw(
+            _("LM Studio URL is missing.<br><br>Open <b>ChangAI Settings</b> and enter your LM Studio server URL."),
+            title=_("Missing LM Studio URL"),
+        )
+    if not model:
+        frappe.throw(
+            _("LM Studio model is missing.<br><br>Open <b>ChangAI Settings</b> and enter the loaded model name."),
+            title=_("Missing LM Studio Model"),
+        )
+
+    headers = {"Content-Type": APPLICATION_JSON}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+
+    if sys_prompt:
+        full_prompt = f"{sys_prompt.strip()}\n\n{prompt}"
+    else:
+        full_prompt = prompt
+
+    native_url = f"{base_url}/api/v1/chat"
+    native_payload = {
+        "model": model,
+        "input": full_prompt,
+        "store": False,
+    }
+    resp = _post_json(native_url, headers=headers, payload=native_payload, timeout=300)
+    if resp.get("ok"):
+        text = _extract_lm_studio_text(resp.get("body") or {})
+        if text:
+            return _clean_gemini_response_text(text)
+
+    openai_url = f"{base_url}/v1/chat/completions"
+    messages = []
+    if sys_prompt:
+        messages.append({"role": "system", "content": sys_prompt})
+    messages.append({"role": "user", "content": prompt})
+    openai_payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "stream": False,
+    }
+    resp = _post_json(openai_url, headers=headers, payload=openai_payload, timeout=300)
+    if not resp.get("ok"):
+        frappe.throw(
+            _("LM Studio request failed ({0}): {1}").format(
+                resp.get("status_code"),
+                json.dumps(resp.get("body"), default=str)[:500],
+            ),
+            title=_("LM Studio Error"),
+        )
+
+    text = _extract_lm_studio_text(resp.get("body") or {})
+    if not text:
+        frappe.throw(
+            _("LM Studio returned an empty response."),
+            title=_("LM Studio Error"),
+        )
+    return _clean_gemini_response_text(text)
 
 
 def _get_gemini_vertex_config(config):

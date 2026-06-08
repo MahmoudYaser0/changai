@@ -12,6 +12,10 @@
   "to_language",
   "gemini_authentication_free_tier_section",
   "gemini_api_key",
+  "lm_studio_section",
+  "lm_studio_url",
+  "lm_studio_model",
+  "lm_studio_api_token",
   "models_section",
   "embedder",
   "qwen3_4b_instruct",
@@ -98,7 +102,7 @@
    "fieldname": "llm",
    "fieldtype": "Select",
    "label": "LLM",
-   "options": "QWEN3\nGemini"
+   "options": "QWEN3\nGemini\nLM Studio"
   },
   {
    "fieldname": "column_break_irkb",
@@ -288,6 +292,32 @@
    "fieldname": "gemini_api_key",
    "fieldtype": "Data",
    "label": "Gemini api key"
+  },
+  {
+   "depends_on": "eval:doc.llm == \"LM Studio\"",
+   "fieldname": "lm_studio_section",
+   "fieldtype": "Section Break",
+   "label": "LM Studio"
+  },
+  {
+   "default": "http://192.168.1.123:8501",
+   "depends_on": "eval:doc.llm == \"LM Studio\"",
+   "fieldname": "lm_studio_url",
+   "fieldtype": "Data",
+   "label": "LM Studio URL"
+  },
+  {
+   "default": "openai/gpt-oss-20b",
+   "depends_on": "eval:doc.llm == \"LM Studio\"",
+   "fieldname": "lm_studio_model",
+   "fieldtype": "Data",
+   "label": "LM Studio Model"
+  },
+  {
+   "depends_on": "eval:doc.llm == \"LM Studio\"",
+   "fieldname": "lm_studio_api_token",
+   "fieldtype": "Password",
+   "label": "LM Studio API Token (Optional)"
   },
   {
    "fieldname": "from_language",

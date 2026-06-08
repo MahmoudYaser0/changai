@@ -117,6 +117,18 @@ frappe.ui.form.on("ChangAI Settings", {
                 text: `Select the AI model used for SQL generation and responses.`,
             },
             {
+                fieldname: "lm_studio_url",
+                text: `Base URL of your LM Studio server. Example: http://192.168.1.123:8501`,
+            },
+            {
+                fieldname: "lm_studio_model",
+                text: `Loaded model identifier from LM Studio. Example: openai/gpt-oss-20b`,
+            },
+            {
+                fieldname: "lm_studio_api_token",
+                text: `Optional API token if LM Studio authentication is enabled.`,
+            },
+            {
                 fieldname: "result_formatting",
                 text: `"Model" gives AI-formatted responses. "Local" uses simple code-based formatting.`,
             },

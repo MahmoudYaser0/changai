@@ -28,6 +28,7 @@ dependencies = [
     "pypng",
     "opencv-python-headless",
     "rapidfuzz",
+    "jellyfish",
     "Pillow",
     "pandas",
     "scikit-learn",
