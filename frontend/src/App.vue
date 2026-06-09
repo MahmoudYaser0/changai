@@ -129,64 +129,90 @@ async function handleChatSubmit(message) {
   const sendNonErptoAI = sendNonERPtoaiEnabled.value
   console.log('sendNonErptoAI value being sent:', sendNonErptoAI, typeof sendNonErptoAI)
   const eventName = `debug_${requestId}`
-  frappe.realtime.on(eventName, onPipelineUpdate)
-  const request = runPipelineCancelable(message,chatId, responseMode.value,requestId,sendNonERPtoaiEnabled.value)
   let lastStepTime = Date.now()
   const steps = []
+
+  const unsubscribeRealtime = () => {
+    if (!window.frappe?.realtime?.off) return
+    try {
+      window.frappe.realtime.off(eventName, onPipelineUpdate)
+    } catch (err) {
+      console.warn('ChangAI: realtime unsubscribe failed', err)
+    }
+  }
+
   const onPipelineUpdate = (msg) => {
-  const now = Date.now()
-  const seconds = ((now - lastStepTime) / 1000).toFixed(2)
-  lastStepTime = now
-  console.log('REALTIME STEP', msg)
-  if (msg.message) {
-  const step = `${msg.message} (${seconds}s)`
-  steps.push(step)
-  currentDebug.value = step
-  thinkingMsg.text = msg.message
-  thinkingMsg.statusType = 'pipeline'
-}
+    const now = Date.now()
+    const seconds = ((now - lastStepTime) / 1000).toFixed(2)
+    lastStepTime = now
+    console.log('REALTIME STEP', msg)
+    if (msg.message) {
+      const step = `${msg.message} (${seconds}s)`
+      steps.push(step)
+      currentDebug.value = step
+      thinkingMsg.text = msg.message
+      thinkingMsg.statusType = 'pipeline'
+    }
 
-  if (!msg.done && msg.message) {
-    thinkingMsg.text = msg.message
-    thinkingMsg.statusType = 'pipeline'
+    if (!msg.done && msg.message) {
+      thinkingMsg.text = msg.message
+      thinkingMsg.statusType = 'pipeline'
+    }
+    if (msg.done) {
+      thinkingMsg.cancelable = false
+
+      if (msg.error) {
+        thinkingMsg.text = `⚠️ ${msg.message || 'Something failed'}`
+        thinkingMsg.isStatus = false
+        thinkingMsg.statusType = null
+      } else if (msg.data?.answer) {
+        thinkingMsg.text = msg.data.answer
+        thinkingMsg.isStatus = false
+        thinkingMsg.statusType = null
+      }
+
+      unsubscribeRealtime()
+      currentDebug.value = null
+      return
+    }
   }
-if (msg.done) {
-  thinkingMsg.cancelable = false
 
-  if (msg.error) {
-    thinkingMsg.text = `⚠️ ${msg.message || 'Something failed'}`
+  let request
+  try {
+    if (window.frappe?.realtime?.on) {
+      window.frappe.realtime.on(eventName, onPipelineUpdate)
+    }
+    request = runPipelineCancelable(message, chatId, responseMode.value, requestId, sendNonERPtoaiEnabled.value)
+  } catch (err) {
+    unsubscribeRealtime()
+    thinkingMsg.cancelable = false
     thinkingMsg.isStatus = false
     thinkingMsg.statusType = null
-  } else if (msg.data?.answer) {
-    thinkingMsg.text = msg.data.answer
-    thinkingMsg.isStatus = false
-    thinkingMsg.statusType = null
+    thinkingMsg.text = '⚠️ Something went wrong. Please try again.'
+    console.error('ChangAI setup error:', err)
+    await nextTick()
+    scrollToBottom()
+    return
   }
-
-  frappe.realtime.off(eventName, onPipelineUpdate)
-  currentDebug.value = null
-  return
-}
-}
 
   cancelPendingChatRequest.value = () => {
-  if (cancelled) return
-  cancelled = true
-  request.cancel()
-  frappe.realtime.off(eventName, onPipelineUpdate)
-  thinkingMsg.isStatus = false
-  thinkingMsg.statusType = null
-  thinkingMsg.text = 'Cancelled by user.'
-  debugLogs.value.push({
-  type: 'cancelled',
-  user: message,
-  steps: [...steps],
-})
-  currentDebug.value = null
-  thinkingMsg.cancelable = false
-  cancelPendingChatRequest.value = null
-}
-try {
+    if (cancelled) return
+    cancelled = true
+    request.cancel()
+    unsubscribeRealtime()
+    thinkingMsg.isStatus = false
+    thinkingMsg.statusType = null
+    thinkingMsg.text = 'Cancelled by user.'
+    debugLogs.value.push({
+      type: 'cancelled',
+      user: message,
+      steps: [...steps],
+    })
+    currentDebug.value = null
+    thinkingMsg.cancelable = false
+    cancelPendingChatRequest.value = null
+  }
+  try {
   const response = await request.promise
   if (response?.open_report)
   {
@@ -303,7 +329,7 @@ if (response?.stop_followup) {
     currentDebug.value = null
   } catch (err) {
     if (cancelled) return
-    frappe.realtime.off(eventName, onPipelineUpdate)
+    unsubscribeRealtime()
     thinkingMsg.cancelable = false
     thinkingMsg.isStatus = false
     thinkingMsg.statusType = null
@@ -328,8 +354,8 @@ if (response?.stop_followup) {
     thinkingMsg.text = '⚠️ Something went wrong. Please try again.'
     }
   } finally {
-  frappe.realtime.off(eventName, onPipelineUpdate)
-  if (!cancelled) {
+    unsubscribeRealtime()
+    if (!cancelled) {
     cancelPendingChatRequest.value = null
   }
 }

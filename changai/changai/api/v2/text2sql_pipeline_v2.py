@@ -1635,10 +1635,9 @@ def _parse_json_list(raw: str) -> List[Any]:
         return []
 
 
-from langchain_community.vectorstores import FAISS
-import faiss
-
 def build_hnsw_index(embeddings):
+    import faiss
+
     dim = len(embeddings[0])
     
     index = faiss.IndexHNSWFlat(dim, 32)  # 32 = neighbors (tune this)
